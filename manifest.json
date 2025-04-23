@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Tidal Atmos Tagger",
+  "version": "1.0",
+  "description": "Добавляет отметку 'Atmos' если трек в Dolby Atmos на Tidal.",
+  "permissions": [
+    "webRequest",
+    "webRequestBlocking",
+    "storage",
+    "scripting",
+    "tabs",
+    "activeTab"],
+  "host_permissions": ["*://*.tidal.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.tidal.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["injected.js"],
+      "matches": ["*://*.tidal.com/*"]
+    }
+  ],
+  "action": {
+    "default_title": "Tidal Atmos Extension"
+  }
+}
