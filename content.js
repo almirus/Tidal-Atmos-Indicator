@@ -1,4 +1,3 @@
-
 // Вставляем файл injected.js в страницу
 (function injectExternalScript() {
     const script = document.createElement("script");
@@ -38,9 +37,11 @@ window.addEventListener('load', function () {
             console.error('Error fetching Atmos albums:', error);
         });
     }
-    const processTrack = (trackElement) => {
-        console.log(trackElement);
-        console.log(albumItems);
+    const processTrack = (trackElement) => {        
+        // Проверяем, были ли уже добавлены иконки
+        if (!trackElement || trackElement.querySelector('img[alt]')) {
+            return;
+        }        
         albumItems.forEach((item) => {
             const trackId = item?.item?.id;
             if (trackId == trackElement.getAttribute('data-id')) {
@@ -85,38 +86,114 @@ window.addEventListener('load', function () {
         }).then(data => {
             const tags = data?.rows?.[0]?.modules?.[0]?.album?.mediaMetadata?.tags || [];
             const video = data?.rows?.[0]?.modules?.[0]?.album?.numberOfVideos;
+            const popularity = data?.rows?.[0]?.modules?.[0]?.album?.popularity;
+            const releaseDate = data?.rows?.[0]?.modules?.[0]?.album?.streamStartDate;
             if (albumId) albumItems = data?.rows?.[1]?.modules?.[0]?.pagedList?.items;
+            
+            // Создаем div для популярности в правом верхнем углу
+            if (popularity !== undefined && popularity !== null) {
+                const popularityDiv = document.createElement('div');
+                popularityDiv.className = 'popularity-container';
+                popularityDiv.style.position = 'absolute';
+                popularityDiv.style.top = '5px';
+                popularityDiv.style.right = '5px';
+                popularityDiv.style.background = 'rgba(0, 0, 0, 0.8)';
+                popularityDiv.style.color = '#fff';
+                popularityDiv.style.padding = '4px 8px';
+                popularityDiv.style.borderRadius = '12px';
+                popularityDiv.style.zIndex = '4';
+                popularityDiv.style.fontSize = '10px';
+                popularityDiv.style.fontWeight = 'bold';
+                popularityDiv.style.display = 'flex';
+                popularityDiv.style.alignItems = 'center';
+                popularityDiv.style.gap = '4px';
+                popularityDiv.title = "popularity";                
+                // Эмодзи в зависимости от популярности
+                let emoji = '💿';
+                if (popularity >= 80) emoji = '🔥';
+                else if (popularity >= 60) emoji = '💫';
+                else if (popularity >= 40) emoji = '✨';
+                else if (popularity >= 20) emoji = '💎';
+                
+                popularityDiv.innerHTML = `${emoji} ${popularity}`;
+                element.appendChild(popularityDiv);
+            }
+            
             const tagsDiv = document.createElement('div');
             tagsDiv.className = 'tags-container';
             tagsDiv.style.position = 'absolute';
-            tagsDiv.style.top = '10px';
-            tagsDiv.style.left = '10px';
+            tagsDiv.style.top = '5px';
+            tagsDiv.style.left = '5px';
             tagsDiv.style.background = 'rgba(0, 0, 0, 0.7)';
             tagsDiv.style.color = '#fff';
             tagsDiv.style.padding = '5px';
-            tagsDiv.style.borderRadius = '3px';
-            tagsDiv.style.zIndex = '10';
-            tagsDiv.style.fontSize = '12px';
+            tagsDiv.style.borderRadius = '12px';
+            tagsDiv.style.zIndex = '4';
+            tagsDiv.style.fontSize = '10px';
             tagsDiv.innerHTML = tags.length > 0 ? tags.join('<br>') : (video > 0 ? 'Video' : 'No tags');
-            tagsDiv.title = data?.rows?.[0]?.modules?.[0]?.album?.popularity;
             element.style.position = 'relative';
             if (albumId) {
-                let albums = searchAtmosAlbum(data?.rows?.[0]?.modules?.[0]?.album?.artists?.[0].name + "-" + data?.rows?.[0]?.modules?.[0]?.album?.title)
+                searchAtmosAlbum(data?.rows?.[0]?.modules?.[0]?.album?.artists?.[0].name + "-" + data?.rows?.[0]?.modules?.[0]?.album?.title)
                     .then(albums => {
-                        const albumDiv = document.createElement('div');
-                        albumDiv.style = "position: absolute; bottom: 10px; left: 10px; background: rgba(0, 0, 0, 0.5); color: #fff; padding: 5px; border-radius: 3px; z-index: 10; font-size: 11px;";
-                        albums.forEach(album => {
-                            const albumLink = document.createElement('a');
-                            albumLink.href = `https://listen.tidal.com/album/${album.id}`;
-                            albumLink.textContent = album.title + " " + album.releaseDate.substring(0, 4);
-                            albumLink.title = 'Dolby Atmos';
-                            albumLink.style.display = 'block';
-                            if (album.id != albumId) albumDiv.appendChild(albumLink);
-
-                        });
-                        element.appendChild(albumDiv);
+                        if (albums && albums.length > 0) {
+                            // Проверяем, есть ли другие альбомы кроме текущего
+                            const otherAlbums = albums.filter(album => album.id != albumId);
+                            if (otherAlbums.length > 0) {
+                                // Ищем блок с названием альбома по более надежным селекторам
+                                const titleContainer = document.querySelector('h2[data-test="title"]')?.closest('div') || 
+                                                      document.querySelector('[data-test="title"]')?.closest('div') ||
+                                                      document.querySelector('h2[class*="title"]')?.closest('div');
+                                if (titleContainer) {
+                                    const atmosDiv = document.createElement('div');
+                                    atmosDiv.style = "margin-top: 8px; padding: 8px; background: rgba(0, 0, 0, 0.05); border-radius: 6px; border-left: 3px solid rgb(0, 127, 212);";
+                                    
+                                    const atmosTitle = document.createElement('div');
+                                    atmosTitle.style = "font-size: 12px; font-weight: 600; color:rgb(0, 162, 212); margin-bottom: 4px;";
+                                    atmosTitle.textContent = '🎧 Dolby Atmos альбомы:';
+                                    atmosDiv.appendChild(atmosTitle);
+                                    
+                                    otherAlbums.forEach(album => {
+                                        const albumLink = document.createElement('a');
+                                        albumLink.href = `https://listen.tidal.com/album/${album.id}`;
+                                        albumLink.textContent = album.title + " (" + album?.streamStartDate.substring(0, 4) + ")";
+                                        albumLink.title = 'Dolby Atmos';
+                                        albumLink.style = "display: block; color: rgba(255, 255, 255, 0.8); text-decoration: none; font-size: 11px; padding: 2px 0;";
+                                        albumLink.addEventListener('mouseenter', () => {
+                                            albumLink.style.color = '#00d4aa';
+                                        });
+                                        albumLink.addEventListener('mouseleave', () => {
+                                            albumLink.style.color = 'rgba(255, 255, 255, 0.8)';
+                                        });
+                                        atmosDiv.appendChild(albumLink);
+                                    });
+                                    
+                                    // Вставляем после блока с мета-информацией
+                                    const metaContainer = titleContainer.querySelector('[data-test="grid-item-meta-item-count"]')?.closest('div') ||
+                                                        titleContainer.querySelector('[data-test="meta-release-date"]')?.closest('div') ||
+                                                        titleContainer.querySelector('span[class*="meta"]')?.closest('div');
+                                    if (metaContainer) {
+                                        metaContainer.parentNode.insertBefore(atmosDiv, metaContainer.nextSibling);
+                                    } else {
+                                        titleContainer.appendChild(atmosDiv);
+                                    }
+                                }
+                            }
+                        }
                     });
             }
+            // Добавляем дату цифрового релиза рядом с годом релиза
+            if (releaseDate && albumId) {
+                setTimeout(() => {
+                    addReleaseDateToPage(releaseDate);
+                }, 500);
+            }
+            // Добавляем информацию о форматах треков
+            if (albumItems) {
+                setTimeout(() => {
+                    addTrackInfo(albumItems);
+                }, 500);
+            }
+            
             element.querySelector('button').remove();
             element.appendChild(tagsDiv);
         }).catch(error => {
@@ -138,8 +215,64 @@ window.addEventListener('load', function () {
         });
     };
 
+    const addTrackInfo = (albumItems) => {
+        albumItems.forEach(item => {
+            const trackId = item?.item?.id;
+            const trackElement = document.querySelector(`span[data-id="${trackId}"]`);
+            processTrack(trackElement);
+        });
+    };
+    // Функция для добавления даты цифрового релиза на страницу
+    const addReleaseDateToPage = (releaseDate) => {
+        try {
+            // Ищем элемент с датой релиза по data-test атрибуту
+            const releaseDateElement = document.querySelector('span[data-test="meta-release-date"]');
+            
+            if (releaseDateElement && releaseDate) {
+                // Проверяем, не добавлена ли уже дата цифрового релиза
+                if (!releaseDateElement.textContent.includes('(')) {
+                    // Форматируем дату
+                    let formattedDate = '';
+                    if (releaseDate.includes('T')) {
+                        // Если дата в формате ISO (например: "2025-01-15T00:00:00Z")
+                        const date = new Date(releaseDate);
+                        formattedDate = date.toLocaleDateString('ru-RU', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric'
+                        });
+                    } else if (releaseDate.includes('-')) {
+                        // Если дата в формате "2025-01-15"
+                        const [year, month, day] = releaseDate.split('-');
+                        formattedDate = `${day}.${month}.${year}`;
+                    } else {
+                        // Если дата в другом формате, используем как есть
+                        formattedDate = releaseDate;
+                    }
+                    
+                    // Добавляем дату цифрового релиза в скобках
+                    const originalText = releaseDateElement.textContent;
+                    releaseDateElement.textContent = `${originalText} (${formattedDate})`;
+                    
+                    // Добавляем title для полной информации
+                    releaseDateElement.title = `Год релиза: ${originalText}, Цифровой релиз: ${formattedDate}`;
+                    
+                }
+            } else {
+                console.log('⚠️ Элемент с датой релиза не найден или releaseDate отсутствует');
+            }
+        } catch (error) {
+            console.error('❌ Ошибка при добавлении даты цифрового релиза:', error);
+        }
+    };
+
     const getAlbumIdFromUrl = () => {
         const match = window.location.pathname.match(/\/album\/(\d+)/);
+        return match ? match[1] : null;
+    };
+    const getMixIdFromUrl = () => {
+        //https://listen.tidal.com/mix/001c88bcd0300b9bb9e9b4f40d162e
+        const match = window.location.pathname.match(/\/mix\/([a-f0-9]+)/);
         return match ? match[1] : null;
     };
     const selectorAlbumArt = 'div[class^="_coverArtContainer_"]';
@@ -181,7 +314,12 @@ window.addEventListener('load', function () {
             }
         });
     });
-    // Настраиваем наблюдатель
-    observer.observe(document.body, {childList: true, subtree: true});
+    // Настраиваем наблюдатель с расширенными опциями
+    observer.observe(document.body, {
+        childList: true, 
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['data-test']
+    });
 
 });
