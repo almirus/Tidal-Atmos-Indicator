@@ -18,10 +18,13 @@ window.addEventListener('load', function () {
 
     let albumItems = [];
     const searchAtmosAlbum = (albumName) => {
+        if (!token) {
+            console.warn('Token is null, cannot search for Atmos albums');
+            return Promise.resolve([]);
+        }
         const searchUrl = `https://listen.tidal.com/v2/search/?includeContributors=true&includeDidYouMean=true&limit=50&query=${encodeURIComponent(albumName)}&supportsUserData=true&types=ALBUMS%2CTRACKS&countryCode=AR&locale=en_US&deviceType=BROWSER`;
         return fetch(searchUrl, {
             method: "GET",
-            credentials: "include",
             headers: {
                 Authorization: token
             }
@@ -35,6 +38,66 @@ window.addEventListener('load', function () {
             return data?.albums?.items?.filter(item => item?.mediaMetadata?.tags.includes('DOLBY_ATMOS'));
         }).catch(error => {
             console.error('Error fetching Atmos albums:', error);
+        });
+    }
+
+    // Функция для поиска информации об альбоме в Discogs API
+    // Для получения токена: https://www.discogs.com/settings/developers
+    // Замените YOUR_DISCOGS_TOKEN_HERE на ваш токен
+    const searchDiscogsAlbum = (artistName, albumTitle) => {
+        const searchQuery = `${artistName} ${albumTitle}`;
+        const searchUrl = `https://api.discogs.com/database/search?q=${encodeURIComponent(searchQuery)}&type=release&per_page=5`;
+        
+        return fetch(searchUrl, {
+            method: "GET",
+            headers: {
+                'User-Agent': 'TidalAtmosExtension/1.0',
+                'Authorization': 'Discogs token=IiNYidApVniIGermIfXhJpdPIWKfONoFAuKPPwnG'
+            }
+        }).then(response => {
+            if (!response.ok) {
+                console.warn(`Discogs API error: ${response.status} - ${response.statusText}`);
+                return null;
+            }
+            return response.json();
+        }).then(data => {
+            if (data) {
+                console.log('Discogs search results:', data);
+                // Возвращаем первый результат (наиболее релевантный)
+                return data.results && data.results.length > 0 ? data.results[0] : null;
+            }
+            return null;
+        }).catch(error => {
+            console.error('Error fetching Discogs album info:', error);
+            return null;
+        });
+    }
+
+    // Функция для получения детальной информации об альбоме из Discogs
+    const getDiscogsAlbumDetails = (releaseId) => {
+        const detailsUrl = `https://api.discogs.com/releases/${releaseId}`;
+        
+        return fetch(detailsUrl, {
+            method: "GET",
+            headers: {
+                'User-Agent': 'TidalAtmosExtension/1.0',
+                'Authorization': 'Discogs token=IiNYidApVniIGermIfXhJpdPIWKfONoFAuKPPwnG'
+            }
+        }).then(response => {
+            if (!response.ok) {
+                console.warn(`Discogs API error: ${response.status} - ${response.statusText}`);
+                return null;
+            }
+            return response.json();
+        }).then(data => {
+            if (data) {
+                console.log('Discogs album details:', data);
+                return data;
+            }
+            return null;
+        }).catch(error => {
+            console.error('Error fetching Discogs album details:', error);
+            return null;
         });
     }
     const processTrack = (trackElement) => {        
@@ -66,6 +129,10 @@ window.addEventListener('load', function () {
         });
     }
     const processElement = (element, albumId) => {
+        if (!token) {
+            console.warn('Token is null, cannot process element');
+            return;
+        }
         let genAlbumId = albumId || element.getAttribute('data-test-element-id') || element.getAttribute('data-test').split('album-card-')[1];
         console.log(`Processing element with albumId: ${genAlbumId}`);
         if (!genAlbumId) {
@@ -74,7 +141,6 @@ window.addEventListener('load', function () {
         }
         fetch(`https://listen.tidal.com/v1/pages/album?albumId=${genAlbumId}&countryCode=AR&locale=en_US&deviceType=BROWSER`, {
             method: "GET",
-            credentials: "include",
             headers: {
                 Authorization: token
             }
@@ -145,7 +211,8 @@ window.addEventListener('load', function () {
                                                       document.querySelector('h2[class*="title"]')?.closest('div');
                                 if (titleContainer) {
                                     const atmosDiv = document.createElement('div');
-                                    atmosDiv.style = "margin-top: 8px; padding: 8px; background: rgba(0, 0, 0, 0.05); border-radius: 6px; border-left: 3px solid rgb(0, 127, 212);";
+                                    atmosDiv.className = 'atmos-info';
+                                    atmosDiv.style = "flex: 1; padding: 8px; background: rgba(0, 0, 0, 0.05); border-radius: 6px; border-left: 3px solid rgb(0, 127, 212);";
                                     
                                     const atmosTitle = document.createElement('div');
                                     atmosTitle.style = "font-size: 12px; font-weight: 600; color:rgb(0, 162, 212); margin-bottom: 4px;";
@@ -167,12 +234,22 @@ window.addEventListener('load', function () {
                                         atmosDiv.appendChild(albumLink);
                                     });
                                     
-                                    // Вставляем после блока с мета-информацией
+                                    // Создаем или находим контейнер для горизонтального размещения
                                     const metaContainer = titleContainer.querySelector('[data-test="grid-item-meta-item-count"]')?.closest('div') ||
                                                         titleContainer.querySelector('[data-test="meta-release-date"]')?.closest('div') ||
                                                         titleContainer.querySelector('span[class*="meta"]')?.closest('div');
+                                    
                                     if (metaContainer) {
-                                        metaContainer.parentNode.insertBefore(atmosDiv, metaContainer.nextSibling);
+                                        let horizontalContainer = metaContainer.parentNode.querySelector('.music-info-container');
+                                        if (!horizontalContainer) {
+                                            horizontalContainer = document.createElement('div');
+                                            horizontalContainer.className = 'music-info-container';
+                                            horizontalContainer.style = "display: flex; margin-top: 8px; gap: 8px;";
+                                            metaContainer.parentNode.insertBefore(horizontalContainer, metaContainer.nextSibling);
+                                        }
+                                        
+                                        // Добавляем блок Dolby Atmos в контейнер
+                                        horizontalContainer.appendChild(atmosDiv);
                                     } else {
                                         titleContainer.appendChild(atmosDiv);
                                     }
@@ -192,6 +269,33 @@ window.addEventListener('load', function () {
                 setTimeout(() => {
                     addTrackInfo(albumItems);
                 }, 500);
+            }
+            
+            // Добавляем информацию Discogs для страницы альбома
+            if (albumId && data?.rows?.[0]?.modules?.[0]?.album) {
+                const album = data.rows[0].modules[0].album;
+                const artistName = album.artists?.[0]?.name;
+                const albumTitle = album.title;
+                
+                if (artistName && albumTitle) {
+                    searchDiscogsAlbum(artistName, albumTitle)
+                        .then(discogsResult => {
+                            if (discogsResult && discogsResult.id) {
+                                return getDiscogsAlbumDetails(discogsResult.id);
+                            }
+                            return null;
+                        })
+                        .then(discogsDetails => {
+                            if (discogsDetails) {
+                                setTimeout(() => {
+                                    addDiscogsInfoToPage(discogsDetails, album);
+                                }, 1000);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error fetching Discogs info:', error);
+                        });
+                }
             }
             
             element.querySelector('button').remove();
@@ -222,6 +326,142 @@ window.addEventListener('load', function () {
             processTrack(trackElement);
         });
     };
+    // Функция для нормализации текста (убирает диакритические знаки)
+    const normalizeText = (text) => {
+        if (!text) return '';
+        return text
+            .toLowerCase()
+            .trim()
+            .normalize('NFD') // Разлагает символы на базовые + диакритические знаки
+            .replace(/[\u0300-\u036f]/g, '') // Убирает диакритические знаки
+            .replace(/[^\w\s]/g, '') // Убирает все кроме букв, цифр и пробелов
+            .replace(/\s+/g, ' '); // Заменяет множественные пробелы на одинарные
+    };
+
+    // Функция для добавления информации Discogs на страницу
+    const addDiscogsInfoToPage = (discogsInfo, tidalAlbum) => {
+        try {
+            if (!discogsInfo || !tidalAlbum) return;
+            
+            // Проверяем соответствие исполнителя с нормализацией
+            const tidalArtist = normalizeText(tidalAlbum.artists?.[0]?.name);
+            const discogsArtist = normalizeText(discogsInfo.artists?.[0]?.name || discogsInfo.artist);
+            
+            // Проверяем соответствие года из элемента на странице
+            const releaseDateElement = document.querySelector('span[data-test="meta-release-date"]');
+            const tidalYear = releaseDateElement?.textContent?.match(/\d{4}/)?.[0];
+            const discogsYear = discogsInfo.year?.toString() || 
+                               discogsInfo.released?.substring(0, 4);
+            
+            // Если исполнитель не совпадает, не показываем блок
+            if (!tidalArtist || !discogsArtist) {
+                console.log('Discogs: Отсутствуют данные исполнителя', { tidalArtist, discogsArtist });
+                return;
+            }
+            
+            // Проверяем совпадение исполнителей (более гибкая проверка)
+            const tidalWords = tidalArtist.split(' ');
+            const discogsWords = discogsArtist.split(' ');
+            
+            // Ищем пересечение слов (хотя бы одно слово должно совпадать)
+            const hasCommonWord = tidalWords.some(tidalWord => 
+                discogsWords.some(discogsWord => 
+                    tidalWord.length > 2 && discogsWord.length > 2 && 
+                    (tidalWord.includes(discogsWord) || discogsWord.includes(tidalWord))
+                )
+            );
+            
+            if (!hasCommonWord) {
+                console.log('Discogs: Исполнитель не совпадает', { 
+                    tidalArtist, 
+                    discogsArtist,
+                    tidalWords,
+                    discogsWords
+                });
+                return;
+            }
+            
+            if (tidalYear && discogsYear && Math.abs(parseInt(tidalYear) - parseInt(discogsYear)) > 5) {
+                console.log('Discogs: Год не совпадает', { tidalYear, discogsYear });
+                return;
+            }
+            
+            // Ищем контейнер с мета-информацией
+            const metaContainer = document.querySelector('[data-test="grid-item-meta-item-count"]')?.closest('div') ||
+                                document.querySelector('[data-test="meta-release-date"]')?.closest('div') ||
+                                document.querySelector('span[class*="meta"]')?.closest('div');
+            
+            if (metaContainer) {
+                // Проверяем, не добавлена ли уже информация Discogs
+                if (metaContainer.querySelector('.discogs-info')) return;
+                
+                const discogsDiv = document.createElement('div');
+                discogsDiv.className = 'discogs-info';
+                discogsDiv.style = "flex: 1; padding: 8px; background: rgba(0, 0, 0, 0.05); border-radius: 6px; border-left: 3px solid #ff6b35; margin-right: 8px;";
+                
+                const discogsTitle = document.createElement('a');
+                discogsTitle.href = discogsInfo.uri || `https://www.discogs.com/release/${discogsInfo.id}`;
+                discogsTitle.target = '_blank';
+                discogsTitle.textContent = '💿 Discogs:';
+                discogsTitle.style = "font-size: 12px; font-weight: 600; color: #ff6b35; margin-bottom: 4px; text-decoration: none; display: block;";
+                discogsTitle.addEventListener('mouseenter', () => {
+                    discogsTitle.style.textDecoration = 'underline';
+                });
+                discogsTitle.addEventListener('mouseleave', () => {
+                    discogsTitle.style.textDecoration = 'none';
+                });
+                discogsDiv.appendChild(discogsTitle);
+                
+                // Добавляем жанры
+                if (discogsInfo.genres && discogsInfo.genres.length > 0) {
+                    const genreDiv = document.createElement('div');
+                    genreDiv.style = "font-size: 11px; color: rgba(255, 255, 255, 0.8); margin: 2px 0;";
+                    genreDiv.innerHTML = `<strong>Жанр:</strong> ${discogsInfo.genres.slice(0, 3).join(', ')}`;
+                    discogsDiv.appendChild(genreDiv);
+                }
+                
+                // Добавляем год релиза
+                if (discogsInfo.year) {
+                    const yearDiv = document.createElement('div');
+                    yearDiv.style = "font-size: 11px; color: rgba(255, 255, 255, 0.8); margin: 2px 0;";
+                    yearDiv.innerHTML = `<strong>Год:</strong> ${discogsInfo.year}`;
+                    discogsDiv.appendChild(yearDiv);
+                }
+                
+                // Добавляем лейбл
+                if (discogsInfo.labels && discogsInfo.labels.length > 0) {
+                    const labelDiv = document.createElement('div');
+                    labelDiv.style = "font-size: 11px; color: rgba(255, 255, 255, 0.8); margin: 2px 0;";
+                    labelDiv.innerHTML = `<strong>Лейбл:</strong> ${discogsInfo.labels[0].name}`;
+                    discogsDiv.appendChild(labelDiv);
+                }
+                
+                // Добавляем страну
+                if (discogsInfo.country) {
+                    const countryDiv = document.createElement('div');
+                    countryDiv.style = "font-size: 11px; color: rgba(255, 255, 255, 0.8); margin: 2px 0;";
+                    countryDiv.innerHTML = `<strong>Страна:</strong> ${discogsInfo.country}`;
+                    discogsDiv.appendChild(countryDiv);
+                }
+                
+                
+                // Создаем или находим контейнер для горизонтального размещения
+                let horizontalContainer = metaContainer.parentNode.querySelector('.music-info-container');
+                if (!horizontalContainer) {
+                    horizontalContainer = document.createElement('div');
+                    horizontalContainer.className = 'music-info-container';
+                    horizontalContainer.style = "display: flex; margin-top: 8px; gap: 8px;";
+                    metaContainer.parentNode.insertBefore(horizontalContainer, metaContainer.nextSibling);
+                }
+                
+                // Добавляем блок Discogs в контейнер
+                horizontalContainer.appendChild(discogsDiv);
+            }
+        } catch (error) {
+            console.error('❌ Ошибка при добавлении информации Discogs:', error);
+        }
+    };
+
     // Функция для добавления даты цифрового релиза на страницу
     const addReleaseDateToPage = (releaseDate) => {
         try {
@@ -273,6 +513,11 @@ window.addEventListener('load', function () {
     const getMixIdFromUrl = () => {
         //https://listen.tidal.com/mix/001c88bcd0300b9bb9e9b4f40d162e
         const match = window.location.pathname.match(/\/mix\/([a-f0-9]+)/);
+        return match ? match[1] : null;
+    };
+    const getPlaylistIdFromUrl = () => {
+        //https://listen.tidal.com/playlist/0d7307f4-d5f4-47c0-92a4-3f12833f8257
+        const match = window.location.pathname.match(/\/playlist\/([a-f0-9-]+)/);
         return match ? match[1] : null;
     };
     const selectorAlbumArt = 'div[class^="_coverArtContainer_"]';

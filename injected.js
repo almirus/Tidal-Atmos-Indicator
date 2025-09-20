@@ -1,5 +1,6 @@
 (function () {
-    const originalFetch = window.fetch;
+    const originalFetch = window.fetch;    
+    console.log('Tidal Atmos Extension injected');
     window.fetch = function (input, init = {}) {
         try {
             const headers = new Headers(init?.headers || {});
