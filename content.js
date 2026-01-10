@@ -34,19 +34,36 @@ window.addEventListener('load', function () {
             }
             return response.json();
         }).then(data => {
-            console.log(data);
+            //console.log(data);
             return data?.albums?.items?.filter(item => item?.mediaMetadata?.tags.includes('DOLBY_ATMOS'));
         }).catch(error => {
             console.error('Error fetching Atmos albums:', error);
         });
     }
 
+    // Функция для получения Atmos альбомов из "Other versions"
+    const getAtmosAlbumsFromOtherVersions = (data) => {
+        if (!data) {
+            return [];
+        }
+        const otherVersions = data?.rows?.[2]?.modules?.[0]?.pagedList?.items;
+        if (!otherVersions || !Array.isArray(otherVersions) || data?.rows?.[2]?.modules?.[0]?.title!='Other versions') {
+            return [];
+        }
+        return otherVersions.filter(item => item?.mediaMetadata?.tags?.includes('DOLBY_ATMOS'));
+    }
+
     // Функция для поиска информации об альбоме в Discogs API
     // Для получения токена: https://www.discogs.com/settings/developers
     // Замените YOUR_DISCOGS_TOKEN_HERE на ваш токен
-    const searchDiscogsAlbum = (artistName, albumTitle) => {
+    const searchDiscogsAlbum = (artistName, albumTitle, tidalYear) => {
         const searchQuery = `${artistName} ${albumTitle}`;
-        const searchUrl = `https://api.discogs.com/database/search?q=${encodeURIComponent(searchQuery)}&type=release&per_page=5`;
+        let searchUrl = `https://api.discogs.com/database/search?q=${encodeURIComponent(searchQuery)}&type=release&per_page=5`;
+        
+        // Если передан год, добавляем его в параметры поиска
+        if (tidalYear) {
+            searchUrl += `&year=${tidalYear}`;
+        }
         
         return fetch(searchUrl, {
             method: "GET",
@@ -61,10 +78,11 @@ window.addEventListener('load', function () {
             }
             return response.json();
         }).then(data => {
-            if (data) {
-                console.log('Discogs search results:', data);
-                // Возвращаем первый результат (наиболее релевантный)
-                return data.results && data.results.length > 0 ? data.results[0] : null;
+            console.warn(`Discogs API result: ${data}`);
+            if (data && data.results && data.results.length > 0) {
+                //console.log('Discogs search results:', data);
+                // Возвращаем первый результат (уже отфильтрованный по году если указан)
+                return data.results[0];
             }
             return null;
         }).catch(error => {
@@ -199,12 +217,34 @@ window.addEventListener('load', function () {
             tagsDiv.innerHTML = tags.length > 0 ? tags.join('<br>') : (video > 0 ? 'Video' : 'No tags');
             element.style.position = 'relative';
             if (albumId) {
+                // Получаем Atmos альбомы из "Other versions"
+                const otherVersionsAtmosAlbums = getAtmosAlbumsFromOtherVersions(data);
+                
                 searchAtmosAlbum(data?.rows?.[0]?.modules?.[0]?.album?.artists?.[0].name + "-" + data?.rows?.[0]?.modules?.[0]?.album?.title)
                     .then(albums => {
+                        // Объединяем результаты из поиска и из "Other versions"
+                        let allAtmosAlbums = [];
+                        
+                        // Добавляем альбомы из поиска
                         if (albums && albums.length > 0) {
-                            // Проверяем, есть ли другие альбомы кроме текущего
-                            const otherAlbums = albums.filter(album => album.id != albumId);
-                            if (otherAlbums.length > 0) {
+                            const searchAlbums = albums.filter(album => album.id != albumId);
+                            allAtmosAlbums = allAtmosAlbums.concat(searchAlbums);
+                        }
+
+                        // Добавляем альбомы из "Other versions"
+                        if (otherVersionsAtmosAlbums && otherVersionsAtmosAlbums.length > 0) {
+                            const otherVersionsAlbums = otherVersionsAtmosAlbums
+                                
+                                .filter(album => album && album.id != albumId);
+                            allAtmosAlbums = allAtmosAlbums.concat(otherVersionsAlbums);
+                        }
+                        
+                        // Убираем дубликаты по id
+                        const uniqueAlbums = allAtmosAlbums.filter((album, index, self) => 
+                            index === self.findIndex(a => a.id === album.id)
+                        );
+                        
+                        if (uniqueAlbums.length > 0) {
                                 // Ищем блок с названием альбома по более надежным селекторам
                                 const titleContainer = document.querySelector('h2[data-test="title"]')?.closest('div') || 
                                                       document.querySelector('[data-test="title"]')?.closest('div') ||
@@ -219,10 +259,10 @@ window.addEventListener('load', function () {
                                     atmosTitle.textContent = '🎧 Dolby Atmos альбомы:';
                                     atmosDiv.appendChild(atmosTitle);
                                     
-                                    otherAlbums.forEach(album => {
+                                    uniqueAlbums.forEach(album => {
                                         const albumLink = document.createElement('a');
                                         albumLink.href = `https://listen.tidal.com/album/${album.id}`;
-                                        albumLink.textContent = album.title + " (" + album?.streamStartDate.substring(0, 4) + ")";
+                                        albumLink.textContent = album.title + " (" + (album?.streamStartDate?.substring(0, 4) || '') + ")";
                                         albumLink.title = 'Dolby Atmos';
                                         albumLink.style = "display: block; color: rgba(255, 255, 255, 0.8); text-decoration: none; font-size: 11px; padding: 2px 0;";
                                         albumLink.addEventListener('mouseenter', () => {
@@ -254,7 +294,6 @@ window.addEventListener('load', function () {
                                         titleContainer.appendChild(atmosDiv);
                                     }
                                 }
-                            }
                         }
                     });
             }
@@ -276,9 +315,10 @@ window.addEventListener('load', function () {
                 const album = data.rows[0].modules[0].album;
                 const artistName = album.artists?.[0]?.name;
                 const albumTitle = album.title;
+                const tidalYear = releaseDate ? releaseDate.substring(0, 4) : null;
                 
                 if (artistName && albumTitle) {
-                    searchDiscogsAlbum(artistName, albumTitle)
+                    searchDiscogsAlbum(artistName, albumTitle, tidalYear)
                         .then(discogsResult => {
                             if (discogsResult && discogsResult.id) {
                                 return getDiscogsAlbumDetails(discogsResult.id);
@@ -381,10 +421,10 @@ window.addEventListener('load', function () {
                 return;
             }
             
-            if (tidalYear && discogsYear && Math.abs(parseInt(tidalYear) - parseInt(discogsYear)) > 5) {
+/*             if (tidalYear && discogsYear && Math.abs(parseInt(tidalYear) - parseInt(discogsYear)) > 5) {
                 console.log('Discogs: Год не совпадает', { tidalYear, discogsYear });
                 return;
-            }
+            } */
             
             // Ищем контейнер с мета-информацией
             const metaContainer = document.querySelector('[data-test="grid-item-meta-item-count"]')?.closest('div') ||
@@ -420,12 +460,30 @@ window.addEventListener('load', function () {
                     discogsDiv.appendChild(genreDiv);
                 }
                 
-                // Добавляем год релиза
-                if (discogsInfo.year) {
-                    const yearDiv = document.createElement('div');
-                    yearDiv.style = "font-size: 11px; color: rgba(255, 255, 255, 0.8); margin: 2px 0;";
-                    yearDiv.innerHTML = `<strong>Год:</strong> ${discogsInfo.year}`;
-                    discogsDiv.appendChild(yearDiv);
+                // Добавляем стили
+                if (discogsInfo.styles && discogsInfo.styles.length > 0) {
+                    const styleDiv = document.createElement('div');
+                    styleDiv.style = "font-size: 11px; color: rgba(255, 255, 255, 0.8); margin: 2px 0;";
+                    styleDiv.innerHTML = `<strong>Стиль:</strong> ${discogsInfo.styles.slice(0, 3).join(', ')}`;
+                    discogsDiv.appendChild(styleDiv);
+                }
+                
+                // Добавляем год и страну в одну строчку
+                if (discogsInfo.year || discogsInfo.country) {
+                    const yearCountryDiv = document.createElement('div');
+                    yearCountryDiv.style = "font-size: 11px; color: rgba(255, 255, 255, 0.8); margin: 2px 0;";
+                    
+                    let yearCountryText = '';
+                    if (discogsInfo.year && discogsInfo.country) {
+                        yearCountryText = `<strong>Год:</strong> ${discogsInfo.year} • <strong>Страна:</strong> ${discogsInfo.country}`;
+                    } else if (discogsInfo.year) {
+                        yearCountryText = `<strong>Год:</strong> ${discogsInfo.year}`;
+                    } else if (discogsInfo.country) {
+                        yearCountryText = `<strong>Страна:</strong> ${discogsInfo.country}`;
+                    }
+                    
+                    yearCountryDiv.innerHTML = yearCountryText;
+                    discogsDiv.appendChild(yearCountryDiv);
                 }
                 
                 // Добавляем лейбл
@@ -434,14 +492,6 @@ window.addEventListener('load', function () {
                     labelDiv.style = "font-size: 11px; color: rgba(255, 255, 255, 0.8); margin: 2px 0;";
                     labelDiv.innerHTML = `<strong>Лейбл:</strong> ${discogsInfo.labels[0].name}`;
                     discogsDiv.appendChild(labelDiv);
-                }
-                
-                // Добавляем страну
-                if (discogsInfo.country) {
-                    const countryDiv = document.createElement('div');
-                    countryDiv.style = "font-size: 11px; color: rgba(255, 255, 255, 0.8); margin: 2px 0;";
-                    countryDiv.innerHTML = `<strong>Страна:</strong> ${discogsInfo.country}`;
-                    discogsDiv.appendChild(countryDiv);
                 }
                 
                 
