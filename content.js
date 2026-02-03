@@ -34,23 +34,38 @@ window.addEventListener('load', function () {
             }
             return response.json();
         }).then(data => {
-            //console.log(data);
+            console.log("searchAtmosAlbum", data);
             return data?.albums?.items?.filter(item => item?.mediaMetadata?.tags.includes('DOLBY_ATMOS'));
         }).catch(error => {
             console.error('Error fetching Atmos albums:', error);
         });
     }
 
-    // Функция для получения Atmos альбомов из "Other versions"
+    // Функция для получения Atmos альбомов из "Other versions" и секций с title "More Albums*"
     const getAtmosAlbumsFromOtherVersions = (data) => {
         if (!data) {
             return [];
         }
-        const otherVersions = data?.rows?.[2]?.modules?.[0]?.pagedList?.items;
-        if (!otherVersions || !Array.isArray(otherVersions) || data?.rows?.[2]?.modules?.[0]?.title!='Other versions') {
+        const rows = data?.rows;
+        if (!rows || !Array.isArray(rows)) {
             return [];
         }
-        return otherVersions.filter(item => item?.mediaMetadata?.tags?.includes('DOLBY_ATMOS'));
+        const result = [];
+        for (const row of rows) {
+            const modules = row?.modules;
+            if (!modules || !Array.isArray(modules)) continue;
+            for (const mod of modules) {
+                const title = mod?.title;
+                const isOtherVersions = title === 'Other versions';
+                const isMoreAlbums = typeof title === 'string' && title.startsWith('More Albums');
+                if (!isOtherVersions && !isMoreAlbums) continue;
+                const items = mod?.pagedList?.items;
+                if (!items || !Array.isArray(items)) continue;
+                const atmosItems = items.filter(item => item?.mediaMetadata?.tags?.includes('DOLBY_ATMOS'));
+                result.push(...atmosItems);
+            }
+        }
+        return result;
     }
 
     // Функция для поиска информации об альбоме в Discogs API
@@ -220,7 +235,11 @@ window.addEventListener('load', function () {
                 // Получаем Atmos альбомы из "Other versions"
                 const otherVersionsAtmosAlbums = getAtmosAlbumsFromOtherVersions(data);
                 
-                searchAtmosAlbum(data?.rows?.[0]?.modules?.[0]?.album?.artists?.[0].name + "-" + data?.rows?.[0]?.modules?.[0]?.album?.title)
+                // Удаляем всё в скобках из названия альбома
+                const albumTitle = data?.rows?.[0]?.modules?.[0]?.album?.title?.replace(/\([^)]*\)/g, '').trim() || '';
+                const searchQuery = data?.rows?.[0]?.modules?.[0]?.album?.artists?.[0].name + "-" + albumTitle;
+                
+                searchAtmosAlbum(searchQuery)
                     .then(albums => {
                         // Объединяем результаты из поиска и из "Other versions"
                         let allAtmosAlbums = [];
@@ -243,8 +262,16 @@ window.addEventListener('load', function () {
                         const uniqueAlbums = allAtmosAlbums.filter((album, index, self) => 
                             index === self.findIndex(a => a.id === album.id)
                         );
+                        // Сортируем по году (новые сверху), ограничиваем 5 элементами
+                        const sortedLimited = uniqueAlbums
+                            .sort((a, b) => {
+                                const yearA = a?.streamStartDate?.substring(0, 4) || '0';
+                                const yearB = b?.streamStartDate?.substring(0, 4) || '0';
+                                return yearB.localeCompare(yearA);
+                            })
+                            .slice(0, 5);
                         
-                        if (uniqueAlbums.length > 0) {
+                        if (sortedLimited.length > 0) {
                                 // Ищем блок с названием альбома по более надежным селекторам
                                 const titleContainer = document.querySelector('h2[data-test="title"]')?.closest('div') || 
                                                       document.querySelector('[data-test="title"]')?.closest('div') ||
@@ -256,10 +283,10 @@ window.addEventListener('load', function () {
                                     
                                     const atmosTitle = document.createElement('div');
                                     atmosTitle.style = "font-size: 12px; font-weight: 600; color:rgb(0, 162, 212); margin-bottom: 4px;";
-                                    atmosTitle.textContent = '🎧 Dolby Atmos альбомы:';
+                                    atmosTitle.textContent = '🎧 Dolby Atmos:';
                                     atmosDiv.appendChild(atmosTitle);
                                     
-                                    uniqueAlbums.forEach(album => {
+                                    sortedLimited.forEach(album => {
                                         const albumLink = document.createElement('a');
                                         albumLink.href = `https://listen.tidal.com/album/${album.id}`;
                                         albumLink.textContent = album.title + " (" + (album?.streamStartDate?.substring(0, 4) || '') + ")";
